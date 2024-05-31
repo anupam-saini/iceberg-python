@@ -40,7 +40,7 @@ from pydantic import (
 )
 from typing_extensions import Annotated
 
-from pyiceberg.schema import Schema
+from pyiceberg.schema import Schema, index_by_name
 from pyiceberg.transforms import (
     BucketTransform,
     DayTransform,
@@ -181,6 +181,10 @@ class PartitionSpec(IcebergBaseModel):
             existing.append(partition_field)
             source_id_to_fields_map[partition_field.source_id] = existing
         return source_id_to_fields_map
+    
+    @cached_property
+    def _lazy_name_to_field(self) -> Dict[str, int]:
+        return {field.name: field for field in self.fields}
 
     def fields_by_source_id(self, field_id: int) -> List[PartitionField]:
         return self.source_id_to_fields_map.get(field_id, [])

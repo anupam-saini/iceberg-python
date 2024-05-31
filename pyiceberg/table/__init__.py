@@ -2809,7 +2809,7 @@ class UpdateSpec(UpdateTableMetadata["UpdateSpec"]):
 
     def __init__(self, transaction: Transaction, case_sensitive: bool = True) -> None:
         super().__init__(transaction)
-        self._name_to_field = {field.name: field for field in transaction.table_metadata.spec().fields}
+        self._name_to_field = transaction.table_metadata.spec()._lazy_name_to_field()
         self._name_to_added_field = {}
         self._transform_to_field = {
             (field.source_id, repr(field.transform)): field for field in transaction.table_metadata.spec().fields

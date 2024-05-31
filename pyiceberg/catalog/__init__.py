@@ -779,31 +779,71 @@ class Catalog(ABC):
         table = self.load_table(identifier)
         with table.transaction() as tx:
             base_schema = table.schema()
-            new_schema = assign_fresh_schema_ids(schema_or_type=new_schema, base_schema=base_schema)
-            new_sort_order = assign_fresh_sort_order_ids(
-                sort_order=new_sort_order,
-                old_schema=base_schema,
-                fresh_schema=new_schema,
-                sort_order_id=table.sort_order().order_id + 1,
-            )
-            new_partition_spec = assign_fresh_partition_spec_ids(
-                spec=new_partition_spec, old_schema=base_schema, fresh_schema=new_schema, spec_id=table.spec().spec_id + 1
-            )
+            # Update schema
+            with tx.update_schema(allow_incompatible_changes=True) as update_schema: 
+                # TODO: Need to make use of name_mapping to figureout the aliases of the columns for the 
+                # logic below
+                removed_column_names = table.schema()._name_to_id.keys() - new_schema._name_to_id.keys() 
+                for column_name in removed_column_names: 
+                    update_schema.delete_column(column_name) 
+                update_schema.union_by_name(new_schema)
+            
+            # Update spec
+            with tx.update_spec() as update_spec:
+                removed_field_names = table.spec()._lazy_name_to_field.keys() - new_partition_spec._lazy_name_to_field.keys()
+                for field_name in removed_field_names:
+                    update_spec.remove_field(field_name)
+                added_field_names = new_partition_spec._lazy_name_to_field.keys() - table.spec()._lazy_name_to_field()
+                for field_name in added_field_names:
+                    update_spec.add_field(field_name)
 
             requirements: Tuple[TableRequirement, ...] = (AssertTableUUID(uuid=table.metadata.table_uuid),)
-            updates: Tuple[TableUpdate, ...] = (
-                AddSchemaUpdate(schema=new_schema, last_column_id=new_schema.highest_field_id),
-                SetCurrentSchemaUpdate(schema_id=-1),
-                AddSortOrderUpdate(sort_order=new_sort_order),
-                SetDefaultSortOrderUpdate(sort_order_id=-1),
-                AddPartitionSpecUpdate(spec=new_partition_spec),
-                SetDefaultSpecUpdate(spec_id=-1),
-            )
-            tx._apply(updates, requirements)
+            updates: Tuple[TableUpdate, ...] = ()
 
+            # Update sort order
+            # new_sort_order = assign_fresh_sort_order_ids(
+            #     sort_order=new_sort_order,
+            #     old_schema=base_schema,
+            #     fresh_schema=table.schema(),
+            #     sort_order_id=table.sort_order().order_id + 1,
+            # )
+            # updates += (AddSortOrderUpdate(sort_order=new_sort_order),
+            #             SetDefaultSortOrderUpdate(sort_order_id=-1),)
+            
+            # Update properties
             tx.set_properties(**new_properties)
+            # Update location
             if new_location is not None:
                 tx.update_location(new_location)
+
+            #### OLD
+            # base_schema = table.schema()
+            # new_schema = assign_fresh_schema_ids(schema_or_type=new_schema, base_schema=base_schema)
+            # new_sort_order = assign_fresh_sort_order_ids(
+            #     sort_order=new_sort_order,
+            #     old_schema=base_schema,
+            #     fresh_schema=new_schema,
+            #     sort_order_id=table.sort_order().order_id + 1,
+            # )
+            # new_partition_spec = assign_fresh_partition_spec_ids(
+            #     spec=new_partition_spec, old_schema=base_schema, fresh_schema=new_schema, spec_id=table.spec().spec_id + 1
+            # )
+
+            # requirements: Tuple[TableRequirement, ...] = (AssertTableUUID(uuid=table.metadata.table_uuid),)
+            # updates: Tuple[TableUpdate, ...] = (
+            #     AddSchemaUpdate(schema=new_schema, last_column_id=new_schema.highest_field_id),
+            #     SetCurrentSchemaUpdate(schema_id=-1),
+            #     AddSortOrderUpdate(sort_order=new_sort_order),
+            #     SetDefaultSortOrderUpdate(sort_order_id=-1),
+            #     AddPartitionSpecUpdate(spec=new_partition_spec),
+            #     SetDefaultSpecUpdate(spec_id=-1),
+            # )
+            # tx._apply(updates, requirements)
+
+            # tx.set_properties(**new_properties)
+            # if new_location is not None:
+            #     tx.update_location(new_location)
+            #### OLD
         return table
 
     def __repr__(self) -> str:
